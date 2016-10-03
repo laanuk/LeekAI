@@ -1,0 +1,139 @@
+// Start with launcher
+if (getWeapon() == null) {
+	setWeapon(WEAPON_MAGNUM);
+}
+
+// We get the nearest enemy
+var leek = getNearestEnemy();
+var me = getLeek();
+var spark = CHIP_SPARK;
+var heal = CHIP_BANDAGE;
+var helmet = CHIP_HELMET;
+var shield = CHIP_SHIELD;
+var armor = CHIP_ARMOR;
+var cure = CHIP_CURE;
+var protein = CHIP_PROTEIN;
+var bulb = CHIP_PUNY_BULB;
+var shard = CHIP_STALACTITE;
+var vaccine = CHIP_VACCINE;
+var distance = getPathLength(getCell(), getCell(leek));
+
+function getBlastCells(leek) {
+	var cell = getCell(leek);
+	var x = getCellX(cell);
+	var y = getCellY(cell);
+	var cells = [];
+	for (var i = 0; i < 3; i++) {
+		for (var j = 0; j < 3; j++) {
+			if (i + j <= 2) {
+				if (!inArray(cells, getCellFromXY(x + i, y + j))) {
+					push(cells, getCellFromXY(x + i, y + j));
+				}
+				if (!inArray(cells, getCellFromXY(x - i, y + j))) {
+					push(cells, getCellFromXY(x - i, y + j));
+				}
+				if (!inArray(cells, getCellFromXY(x + i, y - j))) {
+					push(cells, getCellFromXY(x + i, y - j));
+				}
+				if (!inArray(cells, getCellFromXY(x - i, y - j))) {
+					push(cells, getCellFromXY(x - i, y - j));
+				}
+			}
+		}
+	}
+	return cells;
+}
+
+function attackMove(leek, distance) {		
+	// switch weapons
+	if (distance < 3 && getWeapon() !== WEAPON_AXE) {
+		setWeapon(WEAPON_AXE);
+	}
+	if (distance !== 0 && getWeapon() !== WEAPON_GRENADE_LAUNCHER) {
+		setWeapon(WEAPON_GRENADE_LAUNCHER);
+	}
+	
+	if (getWeapon() == WEAPON_AXE) {
+		moveToward(leek);
+		while (canUseWeapon(leek) && getTP() >= getWeaponCost(getWeapon())) {
+			useWeapon(leek);
+		}
+	} else {
+		// hit closest to direct hit, then back up
+		var cells = getBlastCells(leek);
+		var movedToFire = false;
+		
+		arrayIter(cells, function (cell) {
+			if (!movedToFire) {
+				var fireSpots = getCellsToUseWeaponOnCell(WEAPON_GRENADE_LAUNCHER, cell);
+				arrayIter(fireSpots, function(fireSpot) {
+					if (getPathLength(getCell(), fireSpot) <= 2) {
+						movedToFire = true;
+						moveTowardCell(fireSpot);
+						while (canUseWeapon(leek) && getTP() >= getWeaponCost(getWeapon())) {
+							useWeapon(leek);
+						}
+					}
+				});
+			}	
+		});
+		
+		// utilize remaining MP
+		var newDistance = getPathLength(getCell(), getCell(leek));
+		if (newDistance > 7) {
+			moveToward(leek);
+		} else if (newDistance < 5) {
+			moveAwayFrom(leek);
+		}
+	}
+}
+
+function axeMove(leek, distance) {
+	if (distance < 3) {
+		if (getWeapon() !== WEAPON_AXE) {
+			setWeapon(WEAPON_AXE);
+		}
+	}
+
+	if (canUseChip(CHIP_STALACTITE, leek)) {
+		useChip(CHIP_STALACTITE, leek);
+	}
+	moveToward(leek);
+	if (canUseChip(CHIP_STALACTITE, leek)) {
+		useChip(CHIP_STALACTITE, leek);
+	}
+	while (canUseWeapon(leek) && getTP() >= getWeaponCost(getWeapon())) {
+		useWeapon(leek);
+	}
+}	
+
+if (getLife(leek) < 0.25 * getTotalLife(leek)) {
+	// kill mode
+	axeMove(leek, distance);
+} 
+
+// default
+//if (getLife(me) < getTotalLife(me) * 0.7) {
+//	useChip(vaccine, me);
+//}
+useChip(armor, me);
+useChip(shield, me);
+
+summon(CHIP_PUNY_BULB, getCellsToUseChip(CHIP_PUNY_BULB, getLeek())[0], function () {
+	var enemy = getNearestEnemyTo(getLeek());
+	moveToward(enemy);
+	useChip(helmet, getSummoner());
+	useChip(protein, getSummoner());
+	useChip(heal, getSummoner());
+	useChip(CHIP_PEBBLE, enemy);
+});
+
+axeMove(leek, distance);
+if (getLife() !== getTotalLife()) {
+	useChip(cure, me);
+}
+useChip(helmet, me);
+useChip(protein, me);
+
+
+

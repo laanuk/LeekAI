@@ -1,0 +1,294 @@
+// Start with launcher
+if (getWeapon() == null) {
+	setWeapon(WEAPON_GRENADE_LAUNCHER);
+}
+
+// We get the nearest enemy
+var leek = getNearestEnemy();
+var me = getLeek();
+var heal = CHIP_BANDAGE;
+var cure = CHIP_CURE;
+var vaccine = CHIP_VACCINE;
+var protein = CHIP_PROTEIN;
+var regen = CHIP_REGENERATION;
+var arm = CHIP_ARMORING;
+var distance = getPathLength(getCell(), getCell(leek));
+
+// get all paths
+// for each path calculate the most damage u can do
+// pick path with most damage
+// use remaining MP and TP
+var dmg_chips = [CHIP_STALACTITE, CHIP_LIGHTNING, CHIP_ICEBERG];
+
+if (getLife(leek) < 0.25 * getTotalLife(leek)) {
+	// kill mode
+	attackMove2(dmg_chips);
+} 
+
+// default
+if (getLife(me) < getTotalLife(me) * 0.4) {
+	useChip(regen, me);
+}
+
+attackMove2(dmg_chips);
+if (getLife() !== getTotalLife()) {
+	useChip(cure, me);
+}
+if (getLife(me) < getTotalLife(me) * 0.8) {
+	useChip(vaccine, me);
+}
+useChip(arm, me);
+useChip(protein, me);
+useChip(vaccine, me);
+
+//
+// METHODS
+//
+function attackMove2(dmg_chips) {
+	var paths = getPaths();	
+	var bestPath = [];
+	var maxUtility = 0;
+	var optimalCommands = [];
+	var util = getPathUtility(dmg_chips, paths[0]);
+
+	for (var i = 0; i < count(paths); i++) {
+		var utility = getPathUtility(dmg_chips, paths[i]);
+		if (utility[0] > maxUtility) {
+			maxUtility = utility[0];
+			bestPath = paths[i];
+			optimalCommands = utility[1];
+		}
+	}
+	debug('operations: ' + getOperations());
+	
+	executePath(dmg_chips, bestPath, optimalCommands);
+	// use remaining MP
+	var distance = getDistance(getCell(getNearestEnemy()), getCell());
+	if (distance > 3) {
+		moveToward(getNearestEnemy());
+	} else {
+		moveAwayFrom(getNearestEnemy());
+	}
+}
+
+function getUtilityByEquip(cell, equip) {
+	// cells are numbered 0 to 612 inclusive
+	var bestCell = null;
+	var maxUtility = -1;
+	var str = getStrength();
+	//debug('equip: ' + equip);
+	//debug('cell: ' + cell);
+	if (isWeapon(equip)) {
+		var effects = getWeaponEffects(equip);
+		var range = getWeaponMaxRange(equip);
+		for (var i = 0; i < 613; i++) {
+			if (!isObstacle(i) && getDistance(cell, i) <= range && !(weaponNeedLos(equip) && !lineOfSight(cell, i))) {
+				var cells = getWeaponEffectiveArea(equip, i, cell);
+				var utility = 0;
+
+				for (var j = 0; j < count(cells); j++) {
+					if (isLeek(cells[j]) && isEnemy(getLeekOnCell(cells[j])) && !isSummon(getLeekOnCell(cells[j]))) {
+						var blastMultiplier = getBlastMultiplier(equip, i, cells[j]);
+						var baseDamage = (effects[0][1] + effects[0][2]) / 2 * (1 + str/100) * blastMultiplier;
+						var damage = baseDamage * (100 - getRelativeShield(getLeekOnCell(cells[j]))) / 100;     					  
+						damage -= getAbsoluteShield(getLeekOnCell(cells[j]));
+						utility += damage;
+						if (damage >= getLife(getLeekOnCell(cells[j]))) {
+							utility += 30;
+						}
+					}
+				}
+				if (utility > maxUtility) {
+					maxUtility = utility;
+					bestCell = i;
+				}	
+			}
+		}
+	} else {
+		var effects = getChipEffects(equip);
+		var range = getChipMaxRange(equip);
+		for (var i = 0; i < 613; i++) {
+			if (!isObstacle(i) && getDistance(cell, i) <= range && !(chipNeedLos(equip) && !lineOfSight(cell, i))) {
+				var cells = getChipEffectiveArea(equip, i, cell);
+				var utility = 0;
+
+				for (var j = 0; j < count(cells); j++) {
+					if (isLeek(cells[j]) && isEnemy(getLeekOnCell(cells[j])) && !isSummon(getLeekOnCell(cells[j]))) {
+						var blastMultiplier = getBlastMultiplier(equip, i, cells[j]);
+						var baseDamage = (effects[0][1] + effects[0][2]) / 2 * (1 + str/100) * blastMultiplier;
+						var damage = baseDamage * (100 - getRelativeShield(getLeekOnCell(cells[j]))) / 100;     					  
+						damage -= getAbsoluteShield(getLeekOnCell(cells[j]));
+						utility += damage;
+						if (damage >= getLife(getLeekOnCell(cells[j]))) {
+							utility += 30;
+						}
+					}
+				}
+				if (utility > maxUtility) {
+					maxUtility = utility;
+					bestCell = i;
+				}	
+			}
+		}
+	}
+	
+	//debug('maxUtility: ' + maxUtility);
+	//debug('bestCell: ' + bestCell);
+	return [maxUtility, bestCell];
+}
+
+function getPaths() {
+	var paths = [];
+	var visitedCells = [];
+	var queue = [[getCell()]];
+	
+	while (!isEmpty(queue)) {
+		var path = pop(queue);
+		var cell = pop(path); 
+		push(path, cell);
+		
+		if (cell != null && (cell == getCell() || isEmptyCell(cell)) && !inArray(visitedCells, cell) && count(path) <= getMP() + 1) {
+			// visit cell and add path
+			push(visitedCells, cell);
+			push(paths, path);
+
+			// push adjacent stuff on the queue
+			var cells = [cell + 17, cell - 17, cell + 18, cell - 18];
+			for (var i = 0; i < count(cells); i++) {
+				if (!(getDistance(getCell(), cells[i]) > getTotalMP())) {
+					push(queue, arrayConcat(path, [cells[i]]));
+				}
+			}
+		} 
+	}
+	
+	return paths;
+}
+	
+function getPathUtility(chips, path) {
+	var equips = arrayConcat(chips, getWeapons());
+	var equipUtilities = [];
+	// array where each element corresponds to the utility object of the equip at that index
+	// utility is represented by an array with utility, cellFrom, cellFiredOn, equip name
+	var UTILITY_BASE = 30;
+	fill(equipUtilities, [UTILITY_BASE, getCell(), getCell(), 'NONE'], count(equips));
+	
+	for (var i = 0; i < count(path); i++) {
+		for (var j = 0; j < count(equips); j++) {
+			var utility = getUtilityByEquip(path[i], equips[j]);
+			if (utility[0] > equipUtilities[j][0]) {
+				equipUtilities[j][0] = utility[0];
+				equipUtilities[j][1] = path[i];
+				equipUtilities[j][2] = utility[1];
+				equipUtilities[j][3] = equips[j];
+			}
+		}
+	}
+	
+	//debug('equipUtilies: ' + equipUtilities);
+	
+	// find best combination of actions with given equipUtilities
+	// each element in the queue represented by cumulative utility, a list of equips used, TP used, and current weapon in use
+	var queue = [[0, [], 0, getWeapon()]];
+	var bestUtility = 0;
+	var optimalCommands = [];
+	
+	while (!isEmpty(queue)) {
+		var element = pop(queue);
+		//debug('element: ' + element);
+		var utility = element[0];
+		var commandList = element[1];
+		var tp = element[2];
+		var currentWeapon = element[3];
+		var found = false;
+		
+		for (var i = 0; i < count(equips); i++) {
+			var cost;
+			var newWeapon = currentWeapon;
+			if (isWeapon(equips[i])) {
+				cost = getWeaponCost(equips[i]);
+				if (currentWeapon != equips[i]) {
+					// switch weapon
+					//debug('incing cost to switch weapon' + currentWeapon + ' to ' + equips[i]);
+					cost++;
+					newWeapon = equips[i];
+				}
+			} else {
+				cost = getChipCost(equips[i]);
+				if (getCooldown(equips[i]) != 0) {
+					cost = 100;
+				} else if (getChipCooldown(equips[i]) != 0) {
+					// check if chip is used in the current commandList
+					for (var j = 0; j < count(commandList); j++) {
+						if (equips[i] == commandList[j][3]) {
+							cost = 100;
+						}
+					}
+				}
+			}
+			//debug('tp: ' + tp + 'cost: ' + cost);
+			if (tp + cost <= getTP()) {
+				var newElement = [utility + equipUtilities[i][0], arrayConcat(commandList, [equipUtilities[i]]), tp + cost, newWeapon];	
+				push(queue, newElement);
+				found = true;
+			}	
+		}
+		
+		if (!found) {
+			// tp was maxed out for this path - save it
+			if (utility > bestUtility) {
+				bestUtility = utility;
+				optimalCommands = commandList;
+			}
+		}
+	}
+	
+	//debug('best path utility: ' + bestUtility);
+	//debug('optimal path commands: ' + optimalCommands);
+	return [bestUtility - count(path), optimalCommands];
+}
+
+function executePath(chips, path, commandList) {
+	// commands list items are listed by damage, cellFiredFrom, cellFiredOn, equip name
+	// debug('executing path: ' + path);
+	debug('command list: ' + commandList);
+	
+	var equips = arrayConcat(chips, getWeapons());
+	for (var i = 0; i < count(path); i++) {
+		moveTowardCell(path[i]);
+		for (var j = 0; j < count(commandList); j++) {
+			if (path[i] == commandList[j][1] && isWeapon(commandList[j][3])) {
+				if (getWeapon() != commandList[j][3]) {
+					setWeapon(commandList[j][3]);
+				}
+				useWeaponOnCell(commandList[j][2]);
+			} else if (isChip(commandList[j][3])){
+				useChipOnCell(commandList[j][3], commandList[j][2]);
+			}
+		}
+	}	
+}
+
+
+function getBlastMultiplier(equip, firedCell, targetCell) {
+	var area;
+	if (isWeapon(equip)) {
+		area = getWeaponArea(equip);
+	} else if (isChip(equip)) {
+		area = getChipArea(equip);
+	}
+	var circle1 = [1, 0.5];
+	var circle2 = [1, 0.75, 0.5];
+	var circle3 = [1, 0.83, 0.67, 0.5];
+	if (area == AREA_POINT) {
+		return 1;
+	} else if (area == AREA_LASER_LINE) {
+		return 1;
+	} else if (area == AREA_CIRCLE_1) {
+		return circle1[getCellDistance(firedCell, targetCell)];
+	} else if (area == AREA_CIRCLE_2) {
+		return circle2[getCellDistance(firedCell, targetCell)];
+	} else if (area == AREA_CIRCLE_3) {
+		return circle3[getCellDistance(firedCell, targetCell)];
+	}
+}
